@@ -7,8 +7,8 @@ the 12-bit Fanimation protocol with RCSwitch protocol **13**, and exposes
 four entities to Home Assistant:
 
   * one ``fan`` entity with 3 discrete speeds (1 = slowest, 3 = fastest)
-  * one ``light`` entity (down light, binary on/off)
-  * one ``switch`` entity (top light toggle)
+  * one ``light`` entity (bottom / down light, binary on/off)
+  * one ``light`` entity (top / up light, binary on/off)
   * one ``switch`` entity (direction reverse toggle)
 
 Class layout:
@@ -16,12 +16,11 @@ Class layout:
   * ``RFFan`` — ``Component`` + ``fan::Fan`` (entity #1). Owns the CC1101
     + RCSwitch + the state machine. Self-registers as the fan entity via
     ``fan.register_fan``.
-  * ``RFLightOutput`` — small ``light::LightOutput`` (forwarded to
-    ``RFFan::send_down_light_toggle()``). Wrapped in a code-generated
-    ``light::LightState`` that becomes entity #2 (the down light).
-  * ``RFSwitch`` (x2) — ``switch_::Switch`` + ``Component`` (entities #3,
-    #4) with a "kind" enum distinguishing top-light-toggle from
-    direction-reverse-toggle. Both call back into the parent RFFan.
+  * ``RFLightOutput`` (x2) — small ``light::LightOutput`` (one per light,
+    distinguished by `kind_`). Each is wrapped in a code-generated
+    ``light::LightState`` that becomes one of the two light entities.
+  * ``RFSwitch`` — ``switch_::Switch`` + ``Component`` (entity #4) for
+    direction reverse. Calls back into the parent RFFan.
 """
 import esphome.codegen as cg
 import esphome.config_validation as cv
@@ -147,26 +146,27 @@ async def to_code(config):
         light_cfg = config[CONF_LIGHT]
         light_output = cg.new_Pvariable(light_cfg[light.CONF_OUTPUT_ID], var)
         await light.register_light(light_output, light_cfg)
+        cg.add(light_output.set_kind(0))  # 0 = bottom / down light
         cg.add(var.set_light_output(light_output))
 
-    # Top-light switch
+    # Top-light sub-block: same RFLightOutput class, kind=1, so it
+    # registers as a separate light entity in HA (turns yellow when on
+    # like any other light) rather than the old binary switch.
     if CONF_TOP_LIGHT in config:
         top_cfg = config[CONF_TOP_LIGHT]
-        top_switch = cg.new_Pvariable(top_cfg[CONF_ID])
-        await cg.register_component(top_switch, top_cfg)
-        await switch.register_switch(top_switch, top_cfg)
-        cg.add(top_switch.set_parent(var))
-        cg.add(top_switch.set_kind(0))  # 0 = top light
-        cg.add(var.set_top_light_switch(top_switch))
+        top_light_output = cg.new_Pvariable(top_cfg[light.CONF_OUTPUT_ID], var)
+        await light.register_light(top_light_output, top_cfg)
+        cg.add(top_light_output.set_kind(1))  # 1 = top light
+        cg.add(var.set_top_light_output(top_light_output))
 
-    # Direction-reverse switch
+    # Direction-reverse switch (RFSwitch is hard-coded to direction now;
+    # the top light has its own dimmable light entity above).
     if CONF_DIRECTION in config:
         dir_cfg = config[CONF_DIRECTION]
         dir_switch = cg.new_Pvariable(dir_cfg[CONF_ID])
         await cg.register_component(dir_switch, dir_cfg)
         await switch.register_switch(dir_switch, dir_cfg)
         cg.add(dir_switch.set_parent(var))
-        cg.add(dir_switch.set_kind(1))  # 1 = direction
         cg.add(var.set_direction_switch(dir_switch))
 
     cg.add_define("USE_RF_FAN")

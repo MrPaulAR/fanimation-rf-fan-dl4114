@@ -140,16 +140,6 @@ void RFFan::send_command(uint8_t rf_cmd) {
   transmit_code_(code);
 }
 
-void RFFan::send_down_light_toggle() {
-  send_command(cmd::DOWN_LIGHT);
-  down_light_state_ = !down_light_state_;
-}
-
-void RFFan::send_top_light_toggle() {
-  send_command(cmd::TOP_LIGHT);
-  top_light_state_ = !top_light_state_;
-}
-
 void RFFan::send_direction_toggle() {
   send_command(cmd::DIRECTION);
   direction_state_ = !direction_state_;
@@ -247,9 +237,14 @@ void RFFan::publish_all_() {
     light_state_->publish_state();
   }
 
-  // Switches
-  if (top_light_switch_ != nullptr)
-    top_light_switch_->publish_state(top_light_state_);
+  // Top light — same pattern as the down light, but a separate LightState.
+  if (top_light_state_ != nullptr) {
+    top_light_state_->current_values.set_state(top_light_state_);
+    top_light_state_->current_values.set_color_mode(light::ColorMode::ON_OFF);
+    top_light_state_->publish_state();
+  }
+
+  // Direction switch
   if (direction_switch_ != nullptr)
     direction_switch_->publish_state(direction_state_);
 }
@@ -262,26 +257,35 @@ void RFLightOutput::setup_state(light::LightState *state) {
   // Back-pointer to the LightState so the parent RFFan can push RX-driven
   // updates into the light without invoking this class' write_state (which
   // would re-trigger an RF transmission).
-  parent_->light_state_ = state;
+  if (kind_ == 0) {
+    parent_->light_state_ = state;
+  } else {
+    parent_->top_light_state_ = state;
+  }
 }
 
 void RFLightOutput::write_state(light::LightState *state) {
   bool want_on;
   state->current_values_as_binary(&want_on);
-  // Down-light is a toggling command. Emit the code, then assume the
-  // hardware toggled to the desired state.
-  parent_->send_command(cmd::DOWN_LIGHT);
-  parent_->down_light_state_ = want_on;
+  // Each light is a toggling command. Emit the right code based on kind_,
+  // then assume the hardware toggled to the desired state.
+  parent_->send_command(kind_ == 0 ? cmd::DOWN_LIGHT : cmd::TOP_LIGHT);
+  if (kind_ == 0) {
+    parent_->down_light_state_ = want_on;
+  } else {
+    parent_->top_light_state_ = want_on;
+  }
   state->publish_state();
 }
 
 // ===========================================================================
-// RFSwitch
+// RFSwitch — only the direction-reverse toggle is exposed as a switch
+// now.  The top light is its own light entity.
 // ===========================================================================
 
 void RFSwitch::setup() {
   if (parent_ == nullptr) return;
-  publish_state(kind_ == 0 ? parent_->top_light_state_ : parent_->direction_state_);
+  publish_state(parent_->direction_state_);
 }
 
 void RFSwitch::write_state(bool state) {
@@ -289,16 +293,10 @@ void RFSwitch::write_state(bool state) {
     publish_state(false);
     return;
   }
-  bool current = (kind_ == 0) ? parent_->top_light_state_ : parent_->direction_state_;
-  if (state != current) {
-    if (kind_ == 0)
-      parent_->send_top_light_toggle();
-    else
-      parent_->send_direction_toggle();
-    publish_state(state);
-  } else {
-    publish_state(current);
+  if (state != parent_->direction_state_) {
+    parent_->send_direction_toggle();
   }
+  publish_state(state);
 }
 
 }  // namespace esphome::rf_fan

@@ -78,14 +78,12 @@ class RFFan : public Component, public fan::Fan {
   void set_rx_debounce_ms(uint32_t ms) { rx_debounce_ms_ = ms; }
   void set_repeat_transmit(int n) { repeat_ = n; }
   void set_light_output(RFLightOutput *out) { light_output_ = out; }
-  void set_top_light_switch(RFSwitch *s) { top_light_switch_ = s; }
+  void set_top_light_output(RFLightOutput *out) { top_light_output_ = out; }
   void set_direction_switch(RFSwitch *s) { direction_switch_ = s; }
 
   // ----- Public API for the helper classes (called from lambdas in
   // RFLightOutput::write_state / RFSwitch::write_state). -----
   void send_command(uint8_t rf_cmd);              // raw command byte
-  void send_down_light_toggle();                  // 0x3e
-  void send_top_light_toggle();                   // 0x36
   void send_direction_toggle();                   // 0x3b
 
   // Latest-known states — used by the helper classes' write_state() to
@@ -127,9 +125,10 @@ class RFFan : public Component, public fan::Fan {
 
   // Helper entity pointers.
   RFLightOutput *light_output_{nullptr};
-  RFSwitch *top_light_switch_{nullptr};
+  RFLightOutput *top_light_output_{nullptr};
   RFSwitch *direction_switch_{nullptr};
-  light::LightState *light_state_{nullptr};  // set by RFLightOutput::setup_state
+  light::LightState *light_state_{nullptr};        // down light, set by RFLightOutput setup_state
+  light::LightState *top_light_state_{nullptr};    // top light, set by RFLightOutput setup_state
 
   // Internal helpers.
   void transmit_code_(uint32_t rf_code_12bit);
@@ -160,14 +159,17 @@ class RFFan : public Component, public fan::Fan {
 // ---------------------------------------------------------------------------
 // RFLightOutput — thin LightOutput that forwards writes to its parent RFFan.
 //
-// A codegen-created light::LightState wraps this object and becomes the HA
-// down-light entity.  "Down light" is a toggling protocol command, so
-// write_state() always sends the same 0x3e code and assumes the hardware
-// toggles.
+// A codegen-created light::LightState wraps this object and becomes one of
+// the two HA light entities (bottom/down light or top/up light, distinguished
+// by `kind_`).  Each is controlled by a single toggling protocol command
+// (DOWN_LIGHT 0x3e for the bottom, TOP_LIGHT 0x36 for the top), so
+// write_state() always sends that one code and assumes the hardware toggles.
 // ---------------------------------------------------------------------------
 class RFLightOutput : public light::LightOutput {
  public:
   explicit RFLightOutput(RFFan *parent) : parent_(parent) {}
+
+  void set_kind(int k) { kind_ = k; }   // 0 = bottom light, 1 = top light
 
   light::LightTraits get_traits() override {
     light::LightTraits t;
@@ -185,17 +187,16 @@ class RFLightOutput : public light::LightOutput {
  protected:
   friend class RFFan;
   RFFan *parent_;
+  int kind_{0};
 };
 
 // ---------------------------------------------------------------------------
-// RFSwitch — tiny switch_::Switch + Component for the top-light and
-// direction-reverse toggle entities.
+// RFSwitch — switch_::Switch + Component for the direction-reverse toggle.
 //
-// kind == 0: top light toggle  (cmd::TOP_LIGHT)
-// kind == 1: direction reverse toggle  (cmd::DIRECTION)
-//
-// Both are "toggling" protocol commands — the same RF code is sent each
-// time and the hardware flips its own state.
+// Direction is a "toggling" protocol command — the same RF code is sent
+// each time and the hardware flips its own state.  The top light is its
+// own light entity now (RFLightOutput with kind=1), so this class only
+// handles direction.
 // ---------------------------------------------------------------------------
 class RFSwitch : public switch_::Switch, public Component {
  public:
@@ -203,11 +204,9 @@ class RFSwitch : public switch_::Switch, public Component {
   void write_state(bool state) override;
 
   void set_parent(RFFan *p) { parent_ = p; }
-  void set_kind(int k) { kind_ = k; }
 
  protected:
   RFFan *parent_{nullptr};
-  int kind_{0};
 };
 
 }  // namespace esphome::rf_fan
