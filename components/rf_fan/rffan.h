@@ -117,6 +117,14 @@ class RFFan : public Component, public fan::Fan {
   uint32_t last_rx_value_{0xFFFFFFFF};
   uint32_t last_rx_time_{0};
 
+  // Boot-time millis stamp.  Any RF transmit during the first
+  // BOOT_TX_GRACE_MS milliseconds after setup() is suppressed so that
+  // HA's initial API re-sync (which can call write_state() to push the
+  // last-known state back into the component) does not generate a
+  // spurious DOWN_LIGHT toggle on the receiver.
+  uint32_t boot_time_{0};
+  static constexpr uint32_t BOOT_TX_GRACE_MS = 5000;
+
   // Helper entity pointers.
   RFLightOutput *light_output_{nullptr};
   RFSwitch *top_light_switch_{nullptr};

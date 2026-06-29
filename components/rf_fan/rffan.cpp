@@ -33,7 +33,8 @@ void RFFan::setup() {
   this->speed = 0;
   this->oscillating = false;
 
-  ESP_LOGCONFIG(TAG, "rf_fan setup complete");
+  boot_time_ = millis();
+  ESP_LOGCONFIG(TAG, "rf_fan setup complete (TX grace %u ms)", BOOT_TX_GRACE_MS);
 }
 
 void RFFan::loop() {
@@ -125,6 +126,17 @@ uint8_t RFFan::speed_to_cmd_(uint8_t speed) const {
 // ---------------------------------------------------------------------------
 
 void RFFan::send_command(uint8_t rf_cmd) {
+  if (millis() - boot_time_ < BOOT_TX_GRACE_MS) {
+    // Suppress RF for the first few seconds after boot.  HA's API
+    // re-sync routinely calls control()/write_state() with the
+    // last-known state — without this gate that re-sync would emit
+    // a DOWN_LIGHT toggle on the receiver and turn the physical
+    // light off.  The internal state mirror is still updated by the
+    // caller, so HA's view stays correct.
+    ESP_LOGD(TAG, "TX suppressed (boot grace %u ms): cmd=0x%02X",
+             BOOT_TX_GRACE_MS - (millis() - boot_time_), rf_cmd);
+    return;
+  }
   uint32_t code = encode_code_(rf_cmd);
   ESP_LOGD(TAG, "TX: cmd=0x%02X wire code=0x%03X", rf_cmd, code);
   transmit_code_(code);
