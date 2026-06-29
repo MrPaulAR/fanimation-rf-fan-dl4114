@@ -6,7 +6,7 @@ the LSatan SmartRC library and the vendored RCSwitch), encodes/decodes
 the 12-bit Fanimation protocol with RCSwitch protocol **13**, and exposes
 four entities to Home Assistant:
 
-  * one ``fan`` entity (3 preset modes: I, II, III)
+  * one ``fan`` entity with 3 discrete speeds (1 = slowest, 3 = fastest)
   * one ``light`` entity (down light, binary on/off)
   * one ``switch`` entity (top light toggle)
   * one ``switch`` entity (direction reverse toggle)

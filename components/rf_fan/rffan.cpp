@@ -64,26 +64,20 @@ void RFFan::dump_config() {
 
 fan::FanTraits RFFan::get_traits() {
   // No oscillation; no continuous speed field; no direction (direction is a
-  // separate Switch entity — on this remote direction is binary toggle, not a
-  // settable property).  The DL-4114 (and other Fanimation-family remotes
-  // paired with 3-speed receivers) only has 3 buttons on the physical
-  // remote, so we expose 3 preset modes to HA.
-  this->set_supported_preset_modes({"I", "II", "III"});
+  // separate Switch entity — on this remote direction is a binary toggle,
+  // not a settable property).  Expose 3 discrete speeds so HA's fan card
+  // shows speed buttons instead of just an on/off toggle.
+  this->set_speed_count(3);
   return fan::FanTraits();
 }
 
 void RFFan::control(const fan::FanCall &call) {
-  // Preset mode has priority over plain speed/on-off.
-  if (call.has_preset_mode()) {
-    const char *preset = call.get_preset_mode();
-    uint8_t cmd = 0;
-    uint8_t new_speed = 0;
-    if      (strcmp(preset, "I") == 0)  { cmd = cmd::FAN_I;   new_speed = 1; }
-    else if (strcmp(preset, "II") == 0) { cmd = cmd::FAN_II;  new_speed = 2; }
-    else if (strcmp(preset, "III") == 0){ cmd = cmd::FAN_III; new_speed = 3; }
-    if (cmd != 0) {
-      send_command(cmd);
-      fan_speed_ = new_speed;
+  // Speed (1..3) has priority over plain on/off.
+  if (call.get_speed().has_value()) {
+    int s = *call.get_speed();
+    if (s >= 1 && s <= 3) {
+      send_command(speed_to_cmd_(s));
+      fan_speed_ = s;
       fan_speed_is_set_ = true;
       fan_on_ = true;
     }
@@ -98,14 +92,6 @@ void RFFan::control(const fan::FanCall &call) {
     } else {
       send_command(cmd::FAN_OFF);
       fan_on_ = false;
-    }
-  } else if (call.get_speed().has_value()) {
-    int s = *call.get_speed();
-    if (s >= 1 && s <= 3) {
-      send_command(speed_to_cmd_(s));
-      fan_speed_ = s;
-      fan_speed_is_set_ = true;
-      fan_on_ = true;
     }
   }
 
@@ -239,18 +225,6 @@ void RFFan::publish_all_() {
   // Fan entity
   this->state = fan_on_;
   this->speed = fan_on_ ? fan_speed_ : 0;
-  // Map current speed to preset string for HA.  Speed 0 (off) → no preset.
-  const char *preset = nullptr;
-  switch (fan_speed_) {
-    case 1: preset = "I";    break;
-    case 2: preset = "II";   break;
-    case 3: preset = "III";  break;
-  }
-  if (preset != nullptr && fan_on_) {
-    this->set_preset_mode_(preset, strlen(preset));
-  } else if (!fan_on_) {
-    this->clear_preset_mode_();
-  }
   this->publish_state();
 
   // Down light — push into the LightState's current_values directly so we
