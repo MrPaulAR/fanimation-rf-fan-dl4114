@@ -66,12 +66,11 @@ fan::FanTraits RFFan::get_traits() {
   // No oscillation; no continuous speed field; no direction (direction is a
   // separate Switch entity — on this remote direction is a binary toggle,
   // not a settable property).  Expose 3 discrete speeds so HA's fan card
-  // shows speed buttons instead of just an on/off toggle.  We poke
-  // traits_ directly because fan::Fan has no set_speed_count() wrapper
-  // (it has set_supported_preset_modes / set_oscillating / set_speed but
-  // not this one).
-  this->traits_.set_speed_count(3);
-  return fan::FanTraits();
+  // shows speed buttons instead of just an on/off toggle.
+  fan::FanTraits traits;
+  traits.set_speed(true);
+  traits.set_supported_speed_count(3);
+  return traits;
 }
 
 void RFFan::control(const fan::FanCall &call) {
