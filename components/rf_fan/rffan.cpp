@@ -101,12 +101,22 @@ void RFFan::control(const fan::FanCall &call) {
 }
 
 uint8_t RFFan::speed_to_cmd_(uint8_t speed) const {
+  // Federigo protocol codes (6-speed family per ESPHOME_PORT_PLAN.md
+  // section 8).  The DL-4114 is 6-speed, but a 3-button remote typically
+  // only exposes three of them.  Pair the 3-button remote's buttons to
+  // HA's "low / medium / high" by jumping over the in-between codes the
+  // remote never sends:
+  //   1 (low)    = FAN_I  (0x37)  — Speed I   = L
+  //   2 (medium) = FAN_III (0x2f) — Speed III = M
+  //   3 (high)   = FAN_VI (0x1f)  — Speed VI  = H
+  // The original "II" (0x35) is skipped — most 3-button remotes do not
+  // transmit it, so the receiver ignores it.
   switch (speed) {
     case 1: return cmd::FAN_I;
-    case 2: return cmd::FAN_II;
-    case 3: return cmd::FAN_III;
+    case 2: return cmd::FAN_III;
+    case 3: return cmd::FAN_VI;
   }
-  return cmd::FAN_III;
+  return cmd::FAN_VI;
 }
 
 // ---------------------------------------------------------------------------
