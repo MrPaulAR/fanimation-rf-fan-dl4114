@@ -41,17 +41,6 @@ void RFFan::loop() {
     handle_rx_();
     rf_.resetAvailable();
   }
-
-  // Poll the CC1101 RSSI every ~250 ms so the diagnostic sensor tracks
-  // ambient noise + any incoming signal.  Only emits when an RSSI
-  // sensor was registered in YAML.
-  if (rssi_sensor_ != nullptr) {
-    uint32_t now = millis();
-    if (now - last_rssi_publish_ > 250) {
-      last_rssi_publish_ = now;
-      rssi_sensor_->publish_state(read_rssi_dbm());
-    }
-  }
 }
 
 void RFFan::dump_config() {
@@ -135,20 +124,6 @@ uint8_t RFFan::speed_to_cmd_(uint8_t speed) const {
 // Public TX API used by helper entities
 // ---------------------------------------------------------------------------
 
-int RFFan::read_rssi_dbm() {
-  // ELECHOUSE_cc1101.getRssi() returns the raw CC1101 RSSI register
-  // value (0..255).  The datasheet's two's-complement signed RSSI
-  // formula is:  dBm = (RSSI_raw / 2) - RSSI_OFFSET  with
-  // RSSI_OFFSET = 74 for 433 MHz / 868 MHz / 915 MHz; for 303 MHz the
-  // value is approximately the same in practice.  We just expose the
-  // raw register value here — what matters for the diagnostic is
-  // "does it change when I press the remote?".
-  if (this->rx_state_) {
-    return static_cast<int>(ELECHOUSE_cc1101.getRssi());
-  }
-  return 0;
-}
-
 void RFFan::send_command(uint8_t rf_cmd) {
   uint32_t code = encode_code_(rf_cmd);
   ESP_LOGD(TAG, "TX: cmd=0x%02X wire code=0x%03X", rf_cmd, code);
@@ -175,7 +150,6 @@ void RFFan::send_direction_toggle() {
 // Toggle RX off, switch CC1101 to TX on tx_freq_, send N repeats, switch back.
 // ---------------------------------------------------------------------------
 void RFFan::transmit_code_(uint32_t code_12bit) {
-  rx_state_ = false;
   rf_.disableReceive();
   ELECHOUSE_cc1101.setMHZ(tx_freq_);
   ELECHOUSE_cc1101.SetTx();
@@ -188,7 +162,6 @@ void RFFan::transmit_code_(uint32_t code_12bit) {
   ELECHOUSE_cc1101.setMHZ(rx_freq_);
   ELECHOUSE_cc1101.SetRx();
   rf_.enableReceive(gdo0_pin_->get_pin());
-  rx_state_ = true;
   yield();
 }
 

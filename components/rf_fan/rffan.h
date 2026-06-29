@@ -5,7 +5,6 @@
 #include <ELECHOUSE_CC1101_SRC_DRV.h>
 
 #include <cstdint>
-#include <functional>
 
 namespace esphome::rf_fan {
 
@@ -81,7 +80,6 @@ class RFFan : public Component, public fan::Fan {
   void set_light_output(RFLightOutput *out) { light_output_ = out; }
   void set_top_light_switch(RFSwitch *s) { top_light_switch_ = s; }
   void set_direction_switch(RFSwitch *s) { direction_switch_ = s; }
-  void set_rssi_sensor(sensor::Sensor *s) { rssi_sensor_ = s; }
 
   // ----- Public API for the helper classes (called from lambdas in
   // RFLightOutput::write_state / RFSwitch::write_state). -----
@@ -89,11 +87,6 @@ class RFFan : public Component, public fan::Fan {
   void send_down_light_toggle();                  // 0x3e
   void send_top_light_toggle();                   // 0x36
   void send_direction_toggle();                   // 0x3b
-
-  // Diagnostic: current CC1101 RSSI in dBm.  Read by the optional
-  // rssi sensor so we can see whether the receiver is hearing the
-  // remote at all.
-  int  read_rssi_dbm();
 
   // Latest-known states — used by the helper classes' write_state() to
   // compute the expected post-toggle value, and by RX decode to publish.
@@ -124,20 +117,11 @@ class RFFan : public Component, public fan::Fan {
   uint32_t last_rx_value_{0xFFFFFFFF};
   uint32_t last_rx_time_{0};
 
-  // Tracks whether the CC1101 is currently in RX mode (true) or TX
-  // mode (false).  Used by read_rssi_dbm() to only read the RSSI
-  // register when the radio is actually listening.
-  bool rx_state_{true};
-
   // Helper entity pointers.
   RFLightOutput *light_output_{nullptr};
   RFSwitch *top_light_switch_{nullptr};
   RFSwitch *direction_switch_{nullptr};
   light::LightState *light_state_{nullptr};  // set by RFLightOutput::setup_state
-  sensor::Sensor *rssi_sensor_{nullptr};
-
-  // RSSI polling state.
-  uint32_t last_rssi_publish_{0};
 
   // Internal helpers.
   void transmit_code_(uint32_t rf_code_12bit);
