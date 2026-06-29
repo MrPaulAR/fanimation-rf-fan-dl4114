@@ -6,7 +6,7 @@ the LSatan SmartRC library and the vendored RCSwitch), encodes/decodes
 the 12-bit Fanimation protocol with RCSwitch protocol **13**, and exposes
 four entities to Home Assistant:
 
-  * one ``fan`` entity (6 preset modes: I, II, III, IV, V, VI)
+  * one ``fan`` entity (3 preset modes: I, II, III)
   * one ``light`` entity (down light, binary on/off)
   * one ``switch`` entity (top light toggle)
   * one ``switch`` entity (direction reverse toggle)
@@ -25,7 +25,7 @@ Class layout:
 """
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import fan, light, switch
+from esphome.components import fan, light, sensor, switch
 from esphome.const import CONF_ID, CONF_NAME
 from esphome.core import CORE
 from esphome import pins
@@ -35,7 +35,7 @@ from esphome import pins
 # `spi:` block — we don't want to require that (the legacy sketch handled SPI
 # itself via ELECHOUSE). So we declare the SPI library directly here.
 DEPENDENCIES = []
-AUTO_LOAD = ["fan", "light", "switch"]
+AUTO_LOAD = ["fan", "light", "switch", "sensor"]
 
 # Configuration keys
 CONF_CC1101_CS_PIN = "cc1101_cs_pin"
@@ -51,10 +51,14 @@ CONF_FAN = "fan"
 CONF_LIGHT = "light"
 CONF_TOP_LIGHT = "top_light"
 CONF_DIRECTION = "direction"
+CONF_RSSI = "rssi"
 
-# Pre-set mode strings the fan entity exposes. Match the remote's
-# silkscreen (I..VI) so HA mirrors the physical remote exactly.
-FAN_PRESET_MODES = ["I", "II", "III", "IV", "V", "VI"]
+# Pre-set mode strings the fan entity exposes. Match the physical
+# remote's silkscreen: the DL-4114 (and other Fanimation-family
+# remotes paired with receivers that only accept 3 speeds) has three
+# buttons labelled 1/2/3.  The RF protocol still has codes for I..VI
+# internally, so we map the 3 visible presets to the first 3 codes.
+FAN_PRESET_MODES = ["I", "II", "III"]
 
 rf_fan_ns = cg.esphome_ns.namespace("rf_fan")
 
@@ -102,6 +106,10 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
             cv.Optional(CONF_TOP_LIGHT): SWITCH_SCHEMA,
             cv.Optional(CONF_DIRECTION): SWITCH_SCHEMA,
+            cv.Optional(CONF_RSSI): sensor.sensor_schema(
+                unit_of_measurement="dBm",
+                accuracy_decimals=0,
+            ),
         }
     ).extend(cv.COMPONENT_SCHEMA),
 )
@@ -165,6 +173,13 @@ async def to_code(config):
         cg.add(dir_switch.set_parent(var))
         cg.add(dir_switch.set_kind(1))  # 1 = direction
         cg.add(var.set_direction_switch(dir_switch))
+
+    # Optional RSSI diagnostic sensor — useful when the receiver is
+    # silent and you want to know if the CC1101 is hearing anything
+    # at all.  Polled on every component update.
+    if CONF_RSSI in config:
+        sens = await sensor.new_sensor(config[CONF_RSSI])
+        cg.add(var.set_rssi_sensor(sens))
 
     cg.add_define("USE_RF_FAN")
     # SmartRC-CC1101-Driver-Lib `#include`s the Arduino `<SPI.h>` library.

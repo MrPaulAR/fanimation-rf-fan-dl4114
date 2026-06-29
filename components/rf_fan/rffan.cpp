@@ -41,6 +41,17 @@ void RFFan::loop() {
     handle_rx_();
     rf_.resetAvailable();
   }
+
+  // Poll the CC1101 RSSI every ~250 ms so the diagnostic sensor tracks
+  // ambient noise + any incoming signal.  Only emits when an RSSI
+  // sensor was registered in YAML.
+  if (rssi_sensor_ != nullptr) {
+    uint32_t now = millis();
+    if (now - last_rssi_publish_ > 250) {
+      last_rssi_publish_ = now;
+      rssi_sensor_->publish_state(read_rssi_dbm());
+    }
+  }
 }
 
 void RFFan::dump_config() {
@@ -64,8 +75,10 @@ void RFFan::dump_config() {
 fan::FanTraits RFFan::get_traits() {
   // No oscillation; no continuous speed field; no direction (direction is a
   // separate Switch entity — on this remote direction is binary toggle, not a
-  // settable property). Only 6 preset modes.
-  this->set_supported_preset_modes({"I", "II", "III", "IV", "V", "VI"});
+  // settable property).  The DL-4114 (and other Fanimation-family remotes
+  // paired with 3-speed receivers) only has 3 buttons on the physical
+  // remote, so we expose 3 preset modes to HA.
+  this->set_supported_preset_modes({"I", "II", "III"});
   return fan::FanTraits();
 }
 
@@ -75,12 +88,9 @@ void RFFan::control(const fan::FanCall &call) {
     const char *preset = call.get_preset_mode();
     uint8_t cmd = 0;
     uint8_t new_speed = 0;
-    if (strcmp(preset, "I") == 0)       { cmd = cmd::FAN_I;    new_speed = 1; }
-    else if (strcmp(preset, "II") == 0) { cmd = cmd::FAN_II;   new_speed = 2; }
-    else if (strcmp(preset, "III") == 0){ cmd = cmd::FAN_III;  new_speed = 3; }
-    else if (strcmp(preset, "IV") == 0) { cmd = cmd::FAN_IV;   new_speed = 4; }
-    else if (strcmp(preset, "V") == 0)  { cmd = cmd::FAN_V;    new_speed = 5; }
-    else if (strcmp(preset, "VI") == 0) { cmd = cmd::FAN_VI;   new_speed = 6; }
+    if      (strcmp(preset, "I") == 0)  { cmd = cmd::FAN_I;   new_speed = 1; }
+    else if (strcmp(preset, "II") == 0) { cmd = cmd::FAN_II;  new_speed = 2; }
+    else if (strcmp(preset, "III") == 0){ cmd = cmd::FAN_III; new_speed = 3; }
     if (cmd != 0) {
       send_command(cmd);
       fan_speed_ = new_speed;
@@ -101,7 +111,7 @@ void RFFan::control(const fan::FanCall &call) {
     }
   } else if (call.get_speed().has_value()) {
     int s = *call.get_speed();
-    if (s >= 1 && s <= 6) {
+    if (s >= 1 && s <= 3) {
       send_command(speed_to_cmd_(s));
       fan_speed_ = s;
       fan_speed_is_set_ = true;
@@ -117,9 +127,6 @@ uint8_t RFFan::speed_to_cmd_(uint8_t speed) const {
     case 1: return cmd::FAN_I;
     case 2: return cmd::FAN_II;
     case 3: return cmd::FAN_III;
-    case 4: return cmd::FAN_IV;
-    case 5: return cmd::FAN_V;
-    case 6: return cmd::FAN_VI;
   }
   return cmd::FAN_III;
 }
@@ -127,6 +134,20 @@ uint8_t RFFan::speed_to_cmd_(uint8_t speed) const {
 // ---------------------------------------------------------------------------
 // Public TX API used by helper entities
 // ---------------------------------------------------------------------------
+
+int RFFan::read_rssi_dbm() {
+  // ELECHOUSE_cc1101.getRssi() returns the raw CC1101 RSSI register
+  // value (0..255).  The datasheet's two's-complement signed RSSI
+  // formula is:  dBm = (RSSI_raw / 2) - RSSI_OFFSET  with
+  // RSSI_OFFSET = 74 for 433 MHz / 868 MHz / 915 MHz; for 303 MHz the
+  // value is approximately the same in practice.  We just expose the
+  // raw register value here — what matters for the diagnostic is
+  // "does it change when I press the remote?".
+  if (this->rx_state_) {
+    return static_cast<int>(ELECHOUSE_cc1101.getRssi());
+  }
+  return 0;
+}
 
 void RFFan::send_command(uint8_t rf_cmd) {
   uint32_t code = encode_code_(rf_cmd);
@@ -154,6 +175,7 @@ void RFFan::send_direction_toggle() {
 // Toggle RX off, switch CC1101 to TX on tx_freq_, send N repeats, switch back.
 // ---------------------------------------------------------------------------
 void RFFan::transmit_code_(uint32_t code_12bit) {
+  rx_state_ = false;
   rf_.disableReceive();
   ELECHOUSE_cc1101.setMHZ(tx_freq_);
   ELECHOUSE_cc1101.SetTx();
@@ -166,6 +188,7 @@ void RFFan::transmit_code_(uint32_t code_12bit) {
   ELECHOUSE_cc1101.setMHZ(rx_freq_);
   ELECHOUSE_cc1101.SetRx();
   rf_.enableReceive(gdo0_pin_->get_pin());
+  rx_state_ = true;
   yield();
 }
 
@@ -205,12 +228,12 @@ void RFFan::handle_rx_() {
     case cmd::FAN_I:         fan_speed_ = 1; fan_speed_is_set_ = true; fan_on_ = true; break;
     case cmd::FAN_II:        fan_speed_ = 2; fan_speed_is_set_ = true; fan_on_ = true; break;
     case cmd::FAN_III:       fan_speed_ = 3; fan_speed_is_set_ = true; fan_on_ = true; break;
-    case cmd::FAN_IV:        fan_speed_ = 4; fan_speed_is_set_ = true; fan_on_ = true; break;
-    case cmd::FAN_V:         fan_speed_ = 5; fan_speed_is_set_ = true; fan_on_ = true; break;
-    case cmd::FAN_VI:        fan_speed_ = 6; fan_speed_is_set_ = true; fan_on_ = true; break;
     case cmd::FAN_OFF:      fan_on_ = false;                            break;
     case cmd::SET_KEY:                                                  break;
     case cmd::DEBOUNCE_BAD:                                            break;
+    case cmd::FAN_IV:
+    case cmd::FAN_V:
+    case cmd::FAN_VI:
     default:                                                            break;
   }
 
@@ -237,9 +260,6 @@ void RFFan::publish_all_() {
     case 1: preset = "I";    break;
     case 2: preset = "II";   break;
     case 3: preset = "III";  break;
-    case 4: preset = "IV";   break;
-    case 5: preset = "V";    break;
-    case 6: preset = "VI";   break;
   }
   if (preset != nullptr && fan_on_) {
     this->set_preset_mode_(preset, strlen(preset));
