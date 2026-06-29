@@ -1,0 +1,29 @@
+# Build / cache directories left by local esphome runs — anywhere in the
+# repo (root, ./examples/, etc.)
+.esphome/
+.esphome_platformio/
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Per-environment secrets — keep out of version control.
+# `secrets.yaml.example` is the user-facing template and is NOT ignored.
+secrets.yaml
+*.elf
+*.bin
+*.bin.dump
+__pycache__/
+*.pyc
+
+# Local VS Code workspace
+/.vscode/
+/.idea/
+
+# Logs / captures from RF sniffing
+*.log
+*.raw
+*.capture
+
+# OS junk
+.DS_Store
+Thumbs.db

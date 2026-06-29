@@ -1,0 +1,64 @@
+# Base package for the rf_fan ESPHome external component.
+#
+# Pull this from a device YAML with:
+#   packages:
+#     remote_package:
+#       url: https://github.com/MrPaulAR/fanimation-rf-fan-dl4114
+#       files: [base.yaml]
+#       refresh: 1s
+#
+# Required substitutions (override in the consumer YAML):
+#   display_name   Friendly name shown in Home Assistant
+#   dip_id         4-bit dip switch on the receiver (0..15)
+
+esphome:
+  min_version: 2025.5.0
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/MrPaulAR/fanimation-rf-fan-dl4114
+      ref: main
+    refresh: 1s
+  # - source:
+  #     type: local
+  #     path: components
+
+substitutions:
+  id_prefix: rffan
+  cc1101_cs_pin: "D8"
+  cc1101_gdo0_pin: "D2"
+  cc1101_gdo2_pin: "D1"
+  rx_frequency: "303.870"
+  tx_frequency: "303.870"
+  rx_debounce_ms: "300"
+  repeat_transmit: "7"
+  fade: "false"
+
+rf_fan:
+  id: ${id_prefix}
+  cc1101_cs_pin: ${cc1101_cs_pin}
+  cc1101_gdo0_pin: ${cc1101_gdo0_pin}
+  cc1101_gdo2_pin: ${cc1101_gdo2_pin}
+  dip_id: !lambda 'return ${dip_id}.toInt();'
+  rx_frequency: !lambda 'return ${rx_frequency}.toFloat();'
+  tx_frequency: !lambda 'return ${tx_frequency}.toFloat();'
+  rx_debounce_ms: !lambda 'return ${rx_debounce_ms}.toInt();'
+  repeat_transmit: !lambda 'return ${repeat_transmit}.toInt();'
+  fade: !lambda 'return ${fade} == "true";'
+
+  fan:
+    name: ${display_name}
+    icon: "mdi:ceiling-fan"
+
+  light:
+    name: "${display_name} Light"
+    icon: "mdi:lightbulb"
+
+  top_light:
+    name: "${display_name} Top Light"
+    icon: "mdi:lightbulb-on-outline"
+
+  direction:
+    name: "${display_name} Direction"
+    icon: "mdi:rotate-3d-variant"
