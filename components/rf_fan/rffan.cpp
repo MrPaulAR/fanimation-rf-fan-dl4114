@@ -140,11 +140,6 @@ void RFFan::send_command(uint8_t rf_cmd) {
   transmit_code_(code);
 }
 
-void RFFan::send_direction_toggle() {
-  send_command(cmd::DIRECTION);
-  direction_state_ = !direction_state_;
-}
-
 // ---------------------------------------------------------------------------
 // TX path — mirrors fanimation.cpp:40..84 of the legacy sketch exactly.
 // Toggle RX off, switch CC1101 to TX on tx_freq_, send N repeats, switch back.
@@ -195,7 +190,6 @@ void RFFan::handle_rx_() {
 
   uint8_t cmd = decode_cmd_(value);
   switch (cmd) {
-    case cmd::DIRECTION:    direction_state_ = !direction_state_;     break;
     case cmd::TOP_LIGHT:    top_light_state_ = !top_light_state_;     break;
     case cmd::DOWN_LIGHT:   down_light_state_ = !down_light_state_;   break;
     case cmd::FAN_I:         fan_speed_ = 1; fan_speed_is_set_ = true; fan_on_ = true; break;
@@ -243,10 +237,6 @@ void RFFan::publish_all_() {
     top_light_state_->current_values.set_color_mode(light::ColorMode::ON_OFF);
     top_light_state_->publish_state();
   }
-
-  // Direction switch
-  if (direction_switch_ != nullptr)
-    direction_switch_->publish_state(direction_state_);
 }
 
 // ===========================================================================
@@ -279,24 +269,8 @@ void RFLightOutput::write_state(light::LightState *state) {
 }
 
 // ===========================================================================
-// RFSwitch — only the direction-reverse toggle is exposed as a switch
-// now.  The top light is its own light entity.
-// ===========================================================================
-
-void RFSwitch::setup() {
-  if (parent_ == nullptr) return;
-  publish_state(parent_->direction_state_);
-}
-
-void RFSwitch::write_state(bool state) {
-  if (parent_ == nullptr) {
-    publish_state(false);
-    return;
-  }
-  if (state != parent_->direction_state_) {
-    parent_->send_direction_toggle();
-  }
-  publish_state(state);
-}
+// (RFSwitch has been removed — the only toggle was direction, which the
+// user's remote doesn't have and HA's switch did nothing on the fan.
+// The component now exposes only the fan + 2 lights.)
 
 }  // namespace esphome::rf_fan

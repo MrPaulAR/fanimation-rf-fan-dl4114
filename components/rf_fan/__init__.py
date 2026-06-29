@@ -4,12 +4,11 @@ This component is the ESPHome replacement for the `hampton-bay-fan-mqtt`
 PlatformIO sketch. It owns the radio (a CC1101 on hardware SPI driven by
 the LSatan SmartRC library and the vendored RCSwitch), encodes/decodes
 the 12-bit Fanimation protocol with RCSwitch protocol **13**, and exposes
-four entities to Home Assistant:
+three entities to Home Assistant:
 
   * one ``fan`` entity with 3 discrete speeds (1 = slowest, 3 = fastest)
   * one ``light`` entity (bottom / down light, binary on/off)
   * one ``light`` entity (top / up light, binary on/off)
-  * one ``switch`` entity (direction reverse toggle)
 
 Class layout:
 
@@ -19,12 +18,10 @@ Class layout:
   * ``RFLightOutput`` (x2) — small ``light::LightOutput`` (one per light,
     distinguished by `kind_`). Each is wrapped in a code-generated
     ``light::LightState`` that becomes one of the two light entities.
-  * ``RFSwitch`` — ``switch_::Switch`` + ``Component`` (entity #4) for
-    direction reverse. Calls back into the parent RFFan.
 """
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import fan, light, switch
+from esphome.components import fan, light
 from esphome.const import CONF_ID, CONF_NAME
 from esphome.core import CORE
 from esphome import pins
@@ -34,7 +31,7 @@ from esphome import pins
 # `spi:` block — we don't want to require that (the legacy sketch handled SPI
 # itself via ELECHOUSE). So we declare the SPI library directly here.
 DEPENDENCIES = []
-AUTO_LOAD = ["fan", "light", "switch"]
+AUTO_LOAD = ["fan", "light"]
 
 # Configuration keys
 CONF_CC1101_CS_PIN = "cc1101_cs_pin"
@@ -49,7 +46,6 @@ CONF_REPEAT_TRANSMIT = "repeat_transmit"
 CONF_FAN = "fan"
 CONF_LIGHT = "light"
 CONF_TOP_LIGHT = "top_light"
-CONF_DIRECTION = "direction"
 
 # Pre-set mode strings the fan entity exposes. Match the physical
 # remote's silkscreen: the DL-4114 (and other Fanimation-family
@@ -66,16 +62,12 @@ RFFan = rf_fan_ns.class_("RFFan", cg.Component, fan.Fan)
 # RFLightOutput is the LightOutput wrapped in a LightState.
 RFLightOutput = rf_fan_ns.class_("RFLightOutput", light.LightOutput)
 
-# RFSwitch is a Switch subclass; one instance per toggle entity.
-RFSwitch = rf_fan_ns.class_("RFSwitch", switch.Switch, cg.Component)
-
 
 # Sub-block schemas:
-# - Use the standard fan/light/switch schemas so the user gets all
+# - Use the standard fan/light schemas so the user gets all
 #   ENTITY_BASE_SCHEMA options (name, icon, entity_category, etc.)
 #   for free, and register_<entity>() later works without surprises.
 LIGHT_SCHEMA = light.light_schema(RFLightOutput, light.LightType.BINARY)
-SWITCH_SCHEMA = switch.switch_schema(RFSwitch)
 FAN_SCHEMA = fan.fan_schema(RFFan)
 
 
@@ -102,15 +94,14 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_FAN): FAN_SCHEMA,
             cv.Optional(CONF_LIGHT): LIGHT_SCHEMA,
-            cv.Optional(CONF_TOP_LIGHT): SWITCH_SCHEMA,
-            cv.Optional(CONF_DIRECTION): SWITCH_SCHEMA,
+            cv.Optional(CONF_TOP_LIGHT): LIGHT_SCHEMA,
         }
     ).extend(cv.COMPONENT_SCHEMA),
 )
 
 
 async def to_code(config):
-    """Emit RFFan + RFLightOutput + LightState + two RFSwitch instances."""
+    """Emit RFFan + two RFLightOutput/LightState instances (bottom + top)."""
     # Single RFFan instance — drives the radio AND serves as the fan entity.
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -151,23 +142,13 @@ async def to_code(config):
 
     # Top-light sub-block: same RFLightOutput class, kind=1, so it
     # registers as a separate light entity in HA (turns yellow when on
-    # like any other light) rather than the old binary switch.
+    # like any other light).
     if CONF_TOP_LIGHT in config:
         top_cfg = config[CONF_TOP_LIGHT]
         top_light_output = cg.new_Pvariable(top_cfg[light.CONF_OUTPUT_ID], var)
         await light.register_light(top_light_output, top_cfg)
         cg.add(top_light_output.set_kind(1))  # 1 = top light
         cg.add(var.set_top_light_output(top_light_output))
-
-    # Direction-reverse switch (RFSwitch is hard-coded to direction now;
-    # the top light has its own dimmable light entity above).
-    if CONF_DIRECTION in config:
-        dir_cfg = config[CONF_DIRECTION]
-        dir_switch = cg.new_Pvariable(dir_cfg[CONF_ID])
-        await cg.register_component(dir_switch, dir_cfg)
-        await switch.register_switch(dir_switch, dir_cfg)
-        cg.add(dir_switch.set_parent(var))
-        cg.add(var.set_direction_switch(dir_switch))
 
     cg.add_define("USE_RF_FAN")
     # SmartRC-CC1101-Driver-Lib `#include`s the Arduino `<SPI.h>` library.
